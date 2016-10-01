@@ -8,6 +8,7 @@ import android.annotation.TargetApi;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.PaintFlagsDrawFilter;
 import android.graphics.Path;
 import android.graphics.Rect;
 import android.graphics.RectF;
@@ -17,40 +18,104 @@ import android.os.Build;
 import android.util.AttributeSet;
 import android.view.View;
 
+import java.util.Calendar;
+
 /**
  * Created by jhd147350 on 16/9/6-16:06
  * 935410469@qq.com
  * https://github.com/jhd147350
  * 原出处 https://knewone.com/things/hop-picker-de-chuang-yi-wan-biao/
- *
+ * <p>
  * 第一版 思路想复杂了，弃掉了，可以看HopPickerWatchView2
  */
 public class HopPickerWatchView extends View {
 
+    //// 原理
+
+    //控件实际的宽高，在onmeasure种获取
+    private int viewWidth = 0;
+    private int viewHeight = 0;
+
     private Paint mPaint = new Paint();
     //外圆画笔
-    private Paint outPaint=new Paint();
+    private Paint outPaint = new Paint();
+    //刻度数
+    private int Scale = 72;
+    //每一个刻度所占的角度
+    private float degree = 360f / Scale;
 
+    //旋转角度
+    private float RotateDegree = 0;
+
+    //每分钟度数 转一圈是12小时
+    // 360 / (12*60) = 0.5
+    private float perMinDegree = 0.5f;
+
+    //以下4个属性的实际值还要在onmeasure种测量
     //表盘半径
     private float Radius = 300;
     //外表盘半径
     private float OutRadius = 350;
     //边界半径
-    private int BoundsRadius=400;
+    private int BoundsRadius = 500;
     //部分弧度圆半径  假定那个圆弧 过外表盘点和 表盘二分之一处点 推算得出
-    private float arcR= OutRadius*OutRadius/Radius+Radius/4;
+    private float arcR = OutRadius * OutRadius / Radius + Radius / 4;
 
     //watchface color
-    private int DialColor = 0xFF666666;
+    private int DialColor = 0xFFE5E6EB;
     //
-    private int Black=0xFF000000;
+    private int Black = 0xFF000000;
+
+    //大圆
+    private Path arcPath;//= new Path();
+    //要扣的表盘
+    private Path watchface;//= new Path();
+
+    //刻度上的数字
+    // private String num="";
+    private String nums[] = {"12", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"};
+
+    // 抠图抗锯齿
+    private PaintFlagsDrawFilter pfdf = new PaintFlagsDrawFilter(0, Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+
+    //是否画辅助线
+    //private boolean isShowGuideline = false;
+    private int ShowGuidelineCount = 0;
+
+    private void initMy() {//初始化一些东西
+        mPaint.setAntiAlias(true);
+        mPaint.setColor(DialColor);
+        outPaint.setAntiAlias(true);
+        outPaint.setStyle(Paint.Style.STROKE);
+        //initOnMeasure();
+    }
+
+    private void initOnMeasure() {//跟屏幕尺寸相关的初始化操作放到这个函数里
+        //初始化一些基本尺寸
+        BoundsRadius = Math.min(viewWidth, viewHeight) / 2;
+        Radius = Math.min(viewWidth, viewHeight) / 2 - 230;
+        OutRadius = Math.min(viewWidth, viewHeight) / 2 - 180;
+        arcR = OutRadius * OutRadius / Radius + Radius / 4;
+
+        //初始化和尺寸相关的其他参数
+        outPaint.setStrokeWidth(5);
+        outPaint.setTextSize(50);
+        //onMeasure方法会被调用好几次，所以path.add方法 会 一直放入好几个 path
+        //每次 直接new一个新的
+        arcPath = new Path();
+        arcPath.addCircle(0f, arcR - Radius / 2, arcR, Path.Direction.CW);
+        watchface = new Path();
+        watchface.addCircle(0f, 0f, Radius, Path.Direction.CW);
+    }
 
     public HopPickerWatchView(Context context, AttributeSet attrs) {
         super(context, attrs);
+        initMy();
     }
 
     public HopPickerWatchView(Context context) {
         super(context);
+        initMy();
         // mPaint = new Paint();
         System.out.println("-----init paint-----");
     }
@@ -58,127 +123,149 @@ public class HopPickerWatchView extends View {
 
     public HopPickerWatchView(Context context, AttributeSet attrs, int defStyleAttr) {
         super(context, attrs, defStyleAttr);
+        initMy();
     }
 
-
-    @TargetApi(Build.VERSION_CODES.KITKAT)
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        //mPaint=new Paint();
-        //初始化paint
-        System.out.println("arcR:"+arcR);
-        mPaint.setColor(DialColor);
-        mPaint.setAntiAlias(true);
         //初始化坐标系,以边界半径为坐标原点
-        canvas.translate(BoundsRadius, BoundsRadius);
+        canvas.translate(viewWidth / 2, viewHeight / 2);
         //先画一个圆
+        mPaint.setColor(DialColor);
+        mPaint.setStyle(Paint.Style.FILL_AND_STROKE);
         canvas.drawCircle(0, 0, Radius, mPaint);
-        //画外圆 半圆 路径
+
+        /*//抠圆1，抠出的圆 有锯齿
+        //设置抗锯齿
+        canvas.setDrawFilter(pfdf);
+        canvas.clipPath(watchface);*/
+
+
+        //开始旋转，每次旋转的角度由时间决定，现在先模拟旋转
+        canvas.rotate(RotateDegree);
+         setRotateDegree();
+
+        if (ShowGuidelineCount >= 80) {
+
+
+            //画外圆
+            mPaint.setColor(0xFFff0000); //辅助计算线的颜色为red
+            mPaint.setStyle(Paint.Style.STROKE);
+            mPaint.setStrokeWidth(5);
+            canvas.drawCircle(0, 0, OutRadius, mPaint);
+
+            //画外圆直径那条线arcR - Radius / 2
+            canvas.drawLine(-arcR, arcR - Radius / 2, arcR, arcR - Radius / 2, mPaint);
+            //画经过两圆交点的直线
+            canvas.drawLine(-arcR, 0, arcR, 0, mPaint);
+            //画经过小圆半径1/2处的直线
+            canvas.drawLine(-arcR, -Radius / 2, arcR, -Radius / 2, mPaint);
+
+            canvas.drawLine(-OutRadius, 0, 0, -Radius / 2, mPaint);
+            canvas.drawLine(OutRadius, 0, 0, -Radius / 2, mPaint);
+
+            canvas.drawLine(-OutRadius, 0, 0, arcR - Radius / 2, mPaint);
+            canvas.drawLine(OutRadius, 0, 0, arcR - Radius / 2, mPaint);
+
+            canvas.drawLine(-OutRadius / 2, -Radius / 4, 0, arcR - Radius / 2, mPaint);
+            canvas.drawLine(OutRadius / 2, -Radius / 4, 0, arcR - Radius / 2, mPaint);
+        }
+
+
+        //画外圆的画笔
         outPaint.setColor(Black);
-        outPaint.setAntiAlias(true);
-        outPaint.setStyle(Paint.Style.STROKE);
-       Path outC = new Path();
-
-       // outC.addArc(new RectF(-OutRadius,-OutRadius,OutRadius,OutRadius),0f,180f);
-      //  RectF halfC= new RectF(-OutRadius,-OutRadius,OutRadius,OutRadius);
-      //  outC.arcTo(halfC,0f,180f);
-        RectF temp=new RectF(-arcR,(-Radius/2),arcR,arcR*2-Radius/2);
-      //  Path a=new Path();
-      //  a.addArc(temp,180f,360f);
-       // outC.arcTo(temp,180f,180f);
-       // outC.close();
-      //  canvas.drawPath(outC,outPaint);
-      //  canvas.drawRect(temp,outPaint);
-      //  canvas.drawPath(a,outPaint);
-        //画不规则半弧
-
-        //region 合并半圆和圆弧
-        Region region=new Region();
-        region.setPath(outC,new Region(new Rect((int)-OutRadius,(int)-OutRadius,(int)OutRadius,(int)OutRadius)));
-       // region.set(new Rect((int)-OutRadius,(int)-OutRadius,(int)OutRadius,(int)OutRadius));
-        region.op(new Rect((int)-arcR,(int)(-Radius/2),(int)arcR,(int)(arcR*2-Radius/2)), Region.Op.INTERSECT);
-
-        RegionIterator iterator=new RegionIterator(region);
-     //  Rect r=new Rect();
-     //   while (iterator.next(r)){
-    //       canvas.drawRect(r,outPaint);
-      //  }
-
-        // canvas.drawArc();
-
-        Path path1 = new Path();
-        path1.addCircle(150, 150, 100, Path.Direction.CW);
-        Path path2 = new Path();
-        path2.addCircle(200, 200, 90, Path.Direction.CW);
-        path1.op(path2, Path.Op.INTERSECT);
-        Paint paint1 = new Paint();
-        paint1.setStyle(Paint.Style.STROKE);
-        paint1.setAntiAlias(true);
-        paint1.setColor(0xFFFF0000);
-        canvas.drawPath(path1, paint1);
 
 
         //另一种思路 绘制不规则闭合曲线
-       // Path test0=new Path();
-        Path halfCPath=new Path();
-        //test11.addCircle(0f,0f,OutRadius, Path.Direction.CW);
-        halfCPath.addCircle(0f,0f,OutRadius, Path.Direction.CW);
-        Path arcPath=new Path();
-        //test11.addArc(halfC,0f,180f);
-        //-1有瑕疵，不-1绘制不出来
-        arcPath.addCircle(0f,arcR-Radius/2,arcR-1, Path.Direction.CW);
-        halfCPath.op(arcPath, Path.Op.INTERSECT);
-        canvas.drawPath(halfCPath,outPaint);
-       /*
-        //***************************************
+        canvas.drawPath(arcPath, outPaint);
 
-        //test22的半径在438和463之间 是绘制不出来交集的效果，其他值都可以成功绘制交集效果
-        Path test22=new Path();
-      //  test22.addCircle(0f,arcR-Radius/2,arcR, Path.Direction.CW);
-       // test22.addCircle(0f,arcR-Radius/2,437, Path.Direction.CW);
-        //test22.close();
-        test22.addArc(temp,180f,180f);
-       // test.setFillType(Path.FillType.INVERSE_EVEN_ODD);
-        //android 4.4 才能使用 op方法
-       test11.op(test22 ,Path.Op.INTERSECT);
-        //test11.close();
-          canvas.drawPath(test11,paint1);
-        canvas.drawLine(-500f,-Radius/2,500f,-Radius/2,paint1);
-        canvas.drawPath(test22,paint1);*/
+        //绘制刻度
+        canvas.save();
+        canvas.translate(0, arcR - Radius / 2);
 
+        //刻度之间相隔的角度
+        canvas.rotate(-RotateDegree);
+        for (int i = 0; i < Scale; i++) {
+            if (i % 6 == 0) {//大刻度
+                canvas.drawLine(0, arcR, 0, arcR - 60, outPaint);
+                //画数字
+                canvas.save();
+                canvas.translate(0, 120 - arcR);
+              /*  num="*"+i/6;
+                if(num.equals("0")){//将0换成12
+                    num="12";
+                }*/
+                //纠正 数字旋转的角度 使表盘上的数字一直是正对我们的
+                canvas.rotate(-i / 6 * 30);
+                canvas.drawText(nums[i / 6], -outPaint.measureText(nums[i / 6]) / 2, 0, outPaint);
+                canvas.restore();
+            } else if (i % 6 == 3) {//中刻度
+                canvas.drawLine(0, arcR, 0, arcR - 45, outPaint);
+            } else {//小刻度
+                canvas.drawLine(0, arcR, 0, arcR - 15, outPaint);
+            }
+            //旋转 加偏移量
+            canvas.rotate(degree);
+        }
+        canvas.restore();
 
-        ///----绘制刻度
+        //画指针 #F87219
+        outPaint.setColor(0xFFF87219);
+        canvas.drawLine(0, -Radius, 0, Radius, outPaint);
+        outPaint.setColor(0xFF000000);
 
-
-
-
-
+        postInvalidateDelayed(16);
     }
 
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         //  super.onMeasure(widthMeasureSpec, heightMeasureSpec);
         int widthMode = MeasureSpec.getMode(widthMeasureSpec);
-        int widthSize = MeasureSpec.getSize(widthMeasureSpec);
+        viewWidth = MeasureSpec.getSize(widthMeasureSpec);
         int heightMode = MeasureSpec.getMode(heightMeasureSpec);
-        int heightSize = MeasureSpec.getSize(heightMeasureSpec);
+        viewHeight = MeasureSpec.getSize(heightMeasureSpec);
         int width;
         int height;
         if (widthMode == MeasureSpec.EXACTLY) {
-            width = widthSize;
-
+            width = viewWidth;
         } else {
-            width = BoundsRadius * 3;
+            //  width = BoundsRadius * 2;
+            width = viewWidth;
 
         }
         if (heightMode == MeasureSpec.EXACTLY) {
-            height = heightSize;
+            height = viewHeight;
         } else {
-            height = BoundsRadius * 3;
+            // height = BoundsRadius * 2;
+            height = viewHeight;
         }
         //  MeasureSpec
+
+        initOnMeasure();
+
         setMeasuredDimension(width, height);
+    }
+
+
+    //根据当前时间设置画布旋转角度
+    private void setRotateDegree() {
+        if (RotateDegree >= 360) {
+            RotateDegree = 0;
+        }
+        ShowGuidelineCount++;
+        if (ShowGuidelineCount>=160){
+            ShowGuidelineCount=0;
+        }
+
+        RotateDegree += 0.3;
+
+
+       /* Calendar calendar=Calendar.getInstance();
+        int Hour=calendar.get(Calendar.HOUR);
+        int Min=calendar.get(Calendar.MINUTE);
+
+        RotateDegree=(Hour*60+Min)*perMinDegree;*/
     }
 }
 
