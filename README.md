@@ -8,7 +8,7 @@ complete the basic view
 本人实现原理：  
 ![tu3](./pic/hoppicker原理动图.gif)
 ![tu3](./pic/原理图.png)
-![tu3](./pic/原理图2.png)
+![tu3](./pic/原理图2.png)  
 最终效果：  
 ![tu3](./pic/hoppicker效果图.png)
 
